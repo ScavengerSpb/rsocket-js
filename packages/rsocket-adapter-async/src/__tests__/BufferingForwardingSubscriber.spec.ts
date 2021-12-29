@@ -1,4 +1,4 @@
-import IterableSubscriber from "../lib/IterableSubscriber";
+import SubscribingAsyncIterator from "../lib/SubscribingAsyncIterator";
 import { mock } from "jest-mock-extended";
 import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber, Requestable } from "@rsocket/core";
 import { Codec } from "@rsocket/messaging";

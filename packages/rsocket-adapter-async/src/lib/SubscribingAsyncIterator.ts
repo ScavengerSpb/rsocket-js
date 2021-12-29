@@ -1,7 +1,14 @@
-import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber, Payload, Requestable } from "@rsocket/core";
+import {
+  Cancellable,
+  OnExtensionSubscriber,
+  OnNextSubscriber,
+  OnTerminalSubscriber,
+  Payload,
+  Requestable
+} from "@rsocket/core";
 import { Codec } from "@rsocket/messaging";
 
-export default class IterableSubscriber<T>
+export default class SubscribingAsyncIterator<T>
   implements AsyncIterator<T>, OnNextSubscriber, OnTerminalSubscriber, OnExtensionSubscriber {
 
   private values: { payload: Payload, isComplete: boolean }[] = [];
@@ -14,7 +21,7 @@ export default class IterableSubscriber<T>
   private reject: (reason: any) => void;
 
   constructor(
-    private subscription: Requestable,
+    private subscription: Requestable & Cancellable,
     private prefetch: number,
     private responseCodec: Codec<T>) {
     this.limit = prefetch - (prefetch >> 2);
@@ -108,5 +115,10 @@ export default class IterableSubscriber<T>
 
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return this;
+  }
+
+  return(): Promise<IteratorResult<T, void>> {
+    this.subscription.cancel();
+    return Promise.resolve(null);
   }
 }

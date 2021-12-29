@@ -1,6 +1,6 @@
 import { Cancellable, OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber, Requestable } from "@rsocket/core";
 import { Codec } from "@rsocket/messaging";
-import IterableSubscriber from "./IterableSubscriber";
+import SubscribingAsyncIterator from "./SubscribingAsyncIterator";
 import BufferingForwardingSubscriber from "./BufferingForwardingSubscriber";
 
 export default class RSocketPublisherToPrefetchingAsyncIterable<
@@ -9,7 +9,8 @@ export default class RSocketPublisherToPrefetchingAsyncIterable<
   > implements AsyncIterable<T> {
 
   private readonly limit: number;
-  protected subscriber: TSignalSender;
+  protected subscription: TSignalSender;
+  private subscriber: SubscribingAsyncIterator<T>;
 
   constructor(
     private readonly exchangeFunction: (
@@ -24,10 +25,13 @@ export default class RSocketPublisherToPrefetchingAsyncIterable<
 
   private asyncIterator(): AsyncIterator<T> {
     const forwardingSubscriber = new BufferingForwardingSubscriber();
-    const subscription = this.exchangeFunction(forwardingSubscriber, this.limit);
-    const subscribingAsyncIterable = new IterableSubscriber(subscription, this.limit, this.responseCodec);
-    forwardingSubscriber.subscribe(subscribingAsyncIterable);
-    return subscribingAsyncIterable;
+    this.subscription = this.exchangeFunction(forwardingSubscriber, this.limit);
+    this.subscriber = new SubscribingAsyncIterator(
+      this.subscription,
+      this.prefetch,
+      this.responseCodec);
+    forwardingSubscriber.subscribe(this.subscriber);
+    return this.subscriber;
   }
 
   [Symbol.asyncIterator](): AsyncIterator<T> {
@@ -35,7 +39,6 @@ export default class RSocketPublisherToPrefetchingAsyncIterable<
   }
 
   return(): Promise<IteratorResult<T, void>> {
-    this.subscriber.cancel();
-    return Promise.resolve(null);
+    return this.subscriber.return();
   }
 }
