@@ -9,7 +9,7 @@ import {
   DefaultRespondersFactory
 } from "@rsocket/messaging";
 import { RxRespondersFactory } from "@rsocket/rxjs";
-import { AsyncRequestersFactory } from "@rsocket/async";
+import { AsyncRequestersFactory, AsyncRespondersFactory } from "@rsocket/async";
 import { TcpClientTransport } from "@rsocket/transport-tcp-client";
 import { TcpServerTransport } from "@rsocket/transport-tcp-server";
 import { exit } from "process";
@@ -40,7 +40,7 @@ class RawEchoService {
     const interval = setInterval(() => {
       sent++;
       isDone = sent >= requested;
-      const response = `Echo: ${data}`;
+      const response = `RawEchoService Echo: ${data}`;
       Logger.info("[server] sending", response);
       subscriber.onNext({
         data: codecs.inputCodec.encode(response)
@@ -65,7 +65,7 @@ class RawEchoService {
 
 class RxEchoService {
   handleEchoRequestResponse(data: string): Observable<string> {
-    return timer(1000).pipe(map(() => `Echo: ${data}`));
+    return timer(1000).pipe(map(() => `RxEchoService Echo: ${data}`));
   }
 
   // TODO: look into why only first value is ever emitted.
@@ -73,10 +73,16 @@ class RxEchoService {
   handleEchoRequestStream(data: string): Observable<string> {
     return interval(1000)
       .pipe(
-        map(() => `Echo: ${data}`),
+        map(() => `RxEchoService Echo: ${data}`),
         take(5),
         tap(v => console.log(`[server] sending: ${v}`))
       );
+  }
+}
+
+class AsyncEchoService {
+  async handleEchoRequestResponse(data: string) {
+    return `AsyncEchoService Echo: ${data}`;
   }
 }
 
@@ -95,18 +101,26 @@ function makeServer() {
 
         const rawEchoService = new RawEchoService();
         const rxEchoService = new RxEchoService();
+        const asyncEchoService = new AsyncEchoService();
 
         const builder = RSocketResponder.builder();
 
         builder.route(
-          "EchoService.echo",
+          "RxEchoService.echo",
           RxRespondersFactory.requestResponse(
             rxEchoService.handleEchoRequestResponse,
             codecs
           ));
 
         builder.route(
-          "EchoService.echo",
+          "AsyncEchoService.echo",
+          AsyncRespondersFactory.requestResponse(
+            asyncEchoService.handleEchoRequestResponse,
+            codecs
+          ));
+
+        builder.route(
+          "RawEchoService.echo",
           DefaultRespondersFactory.requestStreamHandler(
             rawEchoService.handleEchoRequestStream,
             codecs
@@ -137,34 +151,40 @@ async function main() {
   const rsocket = await connector.connect();
   const requester = RSocketRequester.wrap(rsocket);
 
-  const knownRoute = "EchoService.echo";
   const unknownRoute = "UnknownService.unknown";
 
   // this request will fail on the server but the client
   // will NOT be notified as per fireAndForget spec
   await requester
-    .route(knownRoute)
-    .request(
-      AsyncRequestersFactory.fireAndForget(
-        "Hello World",
-        stringCodec
-      )
-    );
+    .route("RxEchoService.echo")
+    .request(AsyncRequestersFactory.fireAndForget(
+      "Hello World",
+      stringCodec
+    ));
 
   Logger.info("fireAndForget done");
 
   // this request will succeed
-  let data = await requester
-    .route(knownRoute)
-    .request(
-      AsyncRequestersFactory.requestResponse(
-        "Hello World",
-        stringCodec,
-        stringCodec
-      )
-    );
+  let data1 = await requester
+    .route("RxEchoService.echo")
+    .request(AsyncRequestersFactory.requestResponse(
+      "Hello World",
+      stringCodec,
+      stringCodec
+    ));
 
-  Logger.info("requestResponse done", data);
+  Logger.info("requestResponse done", data1);
+
+  // this request will succeed
+  let data2 = await requester
+    .route("AsyncEchoService.echo")
+    .request(AsyncRequestersFactory.requestResponse(
+      "Hello World",
+      stringCodec,
+      stringCodec
+    ));
+
+  Logger.info("requestResponse done", data2);
 
   // this request will reject (unknown route)
   try {
@@ -172,19 +192,17 @@ async function main() {
       // TODO: server responds with TypeError when passing `undefined` here.
       //  server should likely mask input errors
       .route(unknownRoute)
-      .request(
-        AsyncRequestersFactory.requestResponse(
-          "Hello World",
-          stringCodec,
-          stringCodec
-        )
-      );
+      .request(AsyncRequestersFactory.requestResponse(
+        "Hello World",
+        stringCodec,
+        stringCodec
+      ));
   } catch (e) {
     Logger.error("requestResponse error", e);
   }
 
   const iterable = requester
-    .route(knownRoute)
+    .route("RawEchoService.echo")
     .request(AsyncRequestersFactory.requestStream(
       "Hello World",
       stringCodec,
