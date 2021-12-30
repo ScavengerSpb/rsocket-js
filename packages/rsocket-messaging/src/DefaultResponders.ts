@@ -14,7 +14,7 @@ export type DefaultResponderHandlerSignature<T> = (
   s: OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber
 ) => Cancellable & OnExtensionSubscriber & Requestable;
 
-export function requestStreamHandler<T, R>(
+export function requestStream<T, R>(
   handler: DefaultResponderHandlerSignature<T>,
   codecs: {
     inputCodec: Codec<T>;

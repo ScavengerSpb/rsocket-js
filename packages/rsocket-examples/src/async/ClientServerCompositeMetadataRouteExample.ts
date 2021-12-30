@@ -65,7 +65,14 @@ class RawEchoService {
 
 class RxEchoService {
   handleEchoRequestResponse(data: string): Observable<string> {
-    return timer(1000).pipe(map(() => `RxEchoService Echo: ${data}`));
+    Logger.info(`[server][RxEchoService.handleEchoRequestResponse] received: ${data}`)
+    return timer(1000)
+      .pipe(
+        map(() => `RxEchoService Echo: ${data}`),
+        tap(value => {
+          Logger.info(`[server][RxEchoService.handleEchoRequestResponse] sending: ${value}`)
+        })
+      );
   }
 
   // TODO: look into why only first value is ever emitted.
@@ -75,15 +82,50 @@ class RxEchoService {
       .pipe(
         map(() => `RxEchoService Echo: ${data}`),
         take(5),
-        tap(v => console.log(`[server] sending: ${v}`))
+        tap(value => {
+          Logger.info(`[server][RxEchoService.handleEchoRequestStream] received: ${value}`)
+        })
       );
   }
 }
 
 class AsyncEchoService {
-  async handleEchoRequestResponse(data: string) {
+  async handleHearFireAndForget(data: string): Promise<void> {
+    Logger.info(`[server][AsyncEchoService.handleHearFireAndForget] received: ${data}`);
+  }
+
+  async handleEchoRequestResponse(data: string): Promise<string> {
+    Logger.info(`[server][AsyncEchoService.handleEchoRequestResponse] received: ${data}`);
     return `AsyncEchoService Echo: ${data}`;
   }
+
+  handleEchoRequestStream(data: string): AsyncIterable<string> {
+    let cancelled = false;
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            // simulate async work
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                // could use `cancelled` here to prevent returning a value
+                const response = `AsyncEchoService Echo: ${data}`;
+                Logger.info("[server] sending", response);
+                resolve({
+                  done: false,
+                  value: response
+                });
+              }, 0);
+            });
+          },
+          return() {
+            cancelled = true;
+            return Promise.resolve(null);
+          }
+        };
+      }
+    };
+  };
 }
 
 let serverCloseable;
@@ -120,8 +162,24 @@ function makeServer() {
           ));
 
         builder.route(
+          "AsyncEchoService.hear",
+          AsyncRespondersFactory.fireAndForget(
+            asyncEchoService.handleHearFireAndForget,
+            // TODO: aligning seconds argument to always `codecs` might be simpler
+            //  even if only the input codec will be used
+            codecs.inputCodec
+          ));
+
+        builder.route(
+          "AsyncEchoService.echo",
+          AsyncRespondersFactory.requestStream(
+            asyncEchoService.handleEchoRequestStream,
+            codecs
+          ));
+
+        builder.route(
           "RawEchoService.echo",
-          DefaultRespondersFactory.requestStreamHandler(
+          DefaultRespondersFactory.requestStream(
             rawEchoService.handleEchoRequestStream,
             codecs
           ));
@@ -162,10 +220,21 @@ async function main() {
       stringCodec
     ));
 
-  Logger.info("fireAndForget done");
+  Logger.info("[client] rx fireAndForget done");
+
+  await requester
+    .route("AsyncEchoService.hear")
+    .request(AsyncRequestersFactory.fireAndForget(
+      "Hello World",
+      stringCodec
+    ));
+
+  Logger.info("[client] async fireAndForget done");
+
+  let data;
 
   // this request will succeed
-  let data1 = await requester
+  data = await requester
     .route("RxEchoService.echo")
     .request(AsyncRequestersFactory.requestResponse(
       "Hello World",
@@ -173,10 +242,10 @@ async function main() {
       stringCodec
     ));
 
-  Logger.info("requestResponse done", data1);
+  Logger.info("[client] received:", data);
 
   // this request will succeed
-  let data2 = await requester
+  data = await requester
     .route("AsyncEchoService.echo")
     .request(AsyncRequestersFactory.requestResponse(
       "Hello World",
@@ -184,7 +253,7 @@ async function main() {
       stringCodec
     ));
 
-  Logger.info("requestResponse done", data2);
+  Logger.info("[client] requestResponse done", data);
 
   // this request will reject (unknown route)
   try {
@@ -198,10 +267,27 @@ async function main() {
         stringCodec
       ));
   } catch (e) {
-    Logger.error("requestResponse error", e);
+    Logger.error("[client] requestResponse error", e);
   }
 
-  const iterable = requester
+  const asyncServiceIterable = requester
+    .route("AsyncEchoService.echo")
+    .request(AsyncRequestersFactory.requestStream(
+      "Hello World",
+      stringCodec,
+      stringCodec,
+      3
+    ));
+
+  Logger.info("[client] requestStream to async iterable");
+
+  for await (const value of asyncServiceIterable) {
+    Logger.info(`[client] received`, value);
+  }
+
+  Logger.info("[client] requestStream to async iterable done");
+
+  const rawServiceIterable = requester
     .route("RawEchoService.echo")
     .request(AsyncRequestersFactory.requestStream(
       "Hello World",
@@ -210,13 +296,13 @@ async function main() {
       3
     ));
 
-  Logger.info("requestStream to async iterable");
+  Logger.info("[client] requestStream to async iterable");
 
-  for await (const value of iterable) {
+  for await (const value of rawServiceIterable) {
     Logger.info(`[client] received`, value);
   }
 
-  Logger.info("requestStream to async iterable done");
+  Logger.info("[client] requestStream to async iterable done");
 }
 
 main()
