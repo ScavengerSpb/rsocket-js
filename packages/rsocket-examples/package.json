@@ -17,20 +17,21 @@
     "start-client-server-async-composite-metadata-route": "ts-node -r tsconfig-paths/register src/async/ClientServerCompositeMetadataRouteExample.ts"
   },
   "dependencies": {
-    "ws": "~8.2.3",
-    "@rsocket/core": "^1.0.0",
-    "@rsocket/composite-metadata": "^1.0.0",
     "@rsocket/async": "^1.0.0",
+    "@rsocket/composite-metadata": "^1.0.0",
+    "@rsocket/core": "^1.0.0",
     "@rsocket/rxjs": "^1.0.0",
-    "@rsocket/transport-websocket-client": "^1.0.0",
     "@rsocket/transport-tcp-client": "^1.0.0",
+    "@rsocket/transport-tcp-server": "^1.0.0",
+    "@rsocket/transport-websocket-client": "^1.0.0",
     "@rsocket/transport-websocket-server": "^1.0.0",
-    "@rsocket/transport-tcp-server": "^1.0.0"
+    "ws": "~8.2.3"
   },
   "devDependencies": {
     "rimraf": "~3.0.2",
-    "typescript": "~4.5.2",
+    "rxjs-for-await": "^1.0.0",
     "ts-node": "~10.4.0",
-    "tsconfig-paths": "~3.11.0"
+    "tsconfig-paths": "~3.11.0",
+    "typescript": "~4.5.2"
   }
 }

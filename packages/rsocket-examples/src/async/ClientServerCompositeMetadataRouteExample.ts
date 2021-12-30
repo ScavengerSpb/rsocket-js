@@ -1,19 +1,12 @@
-import {
-  RSocketConnector,
-  RSocketServer
-} from "@rsocket/core";
-import {
-  Codec,
-  RSocketRequester,
-  RSocketResponder,
-  DefaultRespondersFactory
-} from "@rsocket/messaging";
+import { RSocketConnector, RSocketServer } from "@rsocket/core";
+import { Codec, DefaultRespondersFactory, RSocketRequester, RSocketResponder } from "@rsocket/messaging";
 import { RxRespondersFactory } from "@rsocket/rxjs";
 import { AsyncRequestersFactory, AsyncRespondersFactory } from "@rsocket/async";
 import { TcpClientTransport } from "@rsocket/transport-tcp-client";
 import { TcpServerTransport } from "@rsocket/transport-tcp-server";
 import { exit } from "process";
-import { map, Observable, tap, timer, interval, take } from "rxjs";
+import { interval, map, Observable, take, tap, timer } from "rxjs";
+import { eachValueFrom } from "rxjs-for-await";
 import Logger from "../shared/logger";
 
 class StringCodec implements Codec<string> {
@@ -65,12 +58,12 @@ class RawEchoService {
 
 class RxEchoService {
   handleEchoRequestResponse(data: string): Observable<string> {
-    Logger.info(`[server][RxEchoService.handleEchoRequestResponse] received: ${data}`)
+    Logger.info(`[server][RxEchoService.handleEchoRequestResponse] received: ${data}`);
     return timer(1000)
       .pipe(
         map(() => `RxEchoService Echo: ${data}`),
         tap(value => {
-          Logger.info(`[server][RxEchoService.handleEchoRequestResponse] sending: ${value}`)
+          Logger.info(`[server][RxEchoService.handleEchoRequestResponse] sending: ${value}`);
         })
       );
   }
@@ -81,9 +74,8 @@ class RxEchoService {
     return interval(1000)
       .pipe(
         map(() => `RxEchoService Echo: ${data}`),
-        take(5),
         tap(value => {
-          Logger.info(`[server][RxEchoService.handleEchoRequestStream] received: ${value}`)
+          Logger.info(`[server][RxEchoService.handleEchoRequestStream] received: ${value}`);
         })
       );
   }
@@ -100,31 +92,15 @@ class AsyncEchoService {
   }
 
   handleEchoRequestStream(data: string): AsyncIterable<string> {
-    let cancelled = false;
-    return {
-      [Symbol.asyncIterator]() {
-        return {
-          async next() {
-            // simulate async work
-            return new Promise((resolve) => {
-              setTimeout(() => {
-                // could use `cancelled` here to prevent returning a value
-                const response = `AsyncEchoService Echo: ${data}`;
-                Logger.info("[server] sending", response);
-                resolve({
-                  done: false,
-                  value: response
-                });
-              }, 0);
-            });
-          },
-          return() {
-            cancelled = true;
-            return Promise.resolve(null);
-          }
-        };
-      }
-    };
+    const obs = interval(1000)
+      .pipe(
+        map(() => `AsyncEchoService Echo: ${data}`),
+        tap(value => {
+          Logger.info(`[server][AsyncEchoService.handleEchoRequestStream] sending: ${value}`);
+        })
+      );
+    // convert rxjs observable into an AsyncIterator
+    return eachValueFrom(obs);
   };
 }
 
