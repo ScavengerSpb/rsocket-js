@@ -14,6 +14,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@rsocket/composite-metadata": "^1.0.0",
     "@rsocket/core": "^1.0.0",
     "@rsocket/messaging": "^1.0.0",
     "@rsocket/rxjs": "^1.0.0",

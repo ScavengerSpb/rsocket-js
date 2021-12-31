@@ -12,7 +12,7 @@ import {
 import { RxRespondersFactory } from "@rsocket/rxjs";
 import { eachValueFrom } from "rxjs-for-await";
 
-export function requestChannel<IN, OUT>(
+export default function requestChannel<IN, OUT>(
   handler: (dataStream: AsyncIterable<IN>) => AsyncIterable<OUT>,
   codecs: {
     inputCodec: Codec<IN>;
