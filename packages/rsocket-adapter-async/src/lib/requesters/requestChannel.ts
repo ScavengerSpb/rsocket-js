@@ -1,7 +1,7 @@
 import { Codec } from "@rsocket/messaging";
 import { RSocket } from "@rsocket/core";
 import { WellKnownMimeType } from "@rsocket/composite-metadata";
-import { asapScheduler, from } from "rxjs";
+import { from } from "rxjs";
 import { RxRequestersFactory } from "@rsocket/rxjs";
 import { eachValueFrom } from "rxjs-for-await";
 
@@ -27,8 +27,7 @@ export default function requestChannel<TData, RData>(
       $requesterObs,
       inputCodec,
       outputCodec,
-      prefetch,
-      asapScheduler
+      prefetch
     )(rsocket, metadata);
 
     return eachValueFrom($responderObs);

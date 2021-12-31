@@ -1,4 +1,4 @@
-import { asapScheduler, from } from "rxjs";
+import { from } from "rxjs";
 import { Codec } from "@rsocket/messaging";
 import {
   Cancellable,
@@ -65,8 +65,7 @@ export function requestChannel<IN, OUT>(
       const subscriberFactory = RxRespondersFactory.requestChannel(
         ($in) => from(handler(eachValueFrom($in))),
         codecs,
-        prefetch,
-        asapScheduler
+        prefetch
       );
 
       return subscriberFactory(payload, initialRequestN, isCompleted, s);
