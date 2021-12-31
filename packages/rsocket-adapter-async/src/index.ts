@@ -1,2 +1,2 @@
-export * as AsyncRequestersFactory from "./Requesters";
-export * as AsyncRespondersFactory from "./Responders";
+export * as AsyncRequestersFactory from "./lib/requesters";
+export * as AsyncRespondersFactory from "./lib/responders";
