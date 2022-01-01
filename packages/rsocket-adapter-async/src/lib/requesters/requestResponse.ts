@@ -14,8 +14,9 @@ export default function requestResponse<TData, RData>(
     rsocket: RSocket,
     metadata: Map<string | number | WellKnownMimeType, Buffer>
   ) => {
+    const isEmpty = data === undefined || data === null;
     const payload = {
-      data: data ? inputCodec.encode(data) : Buffer.allocUnsafe(0),
+      data: isEmpty ? Buffer.allocUnsafe(0) : inputCodec.encode(data),
       metadata: encodeCompositeMetadata(metadata)
     };
     return new Promise((resolve, reject) => {
