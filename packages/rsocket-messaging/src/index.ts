@@ -18,8 +18,9 @@
 
 import {
   decodeCompositeMetadata,
-  decodeRoutes, encodeRoutes,
-  WellKnownMimeType
+  decodeRoutes,
+  encodeRoutes,
+  WellKnownMimeType,
 } from "@rsocket/composite-metadata";
 import {
   Cancellable,
@@ -31,7 +32,7 @@ import {
   Payload,
   Requestable,
   RSocket,
-  RSocketError
+  RSocketError,
 } from "@rsocket/core";
 
 export interface Codec<D> {
