@@ -149,7 +149,11 @@ export class RequestFnfResponderStream
       data: frame.data,
       metadata: frame.metadata,
     };
-    this.cancellable = handler(payload, this);
+    try {
+      this.cancellable = handler(payload, this);
+    } catch (e) {
+      // do nothing
+    }
   }
 
   handle(frame: CancelFrame | ErrorFrame | PayloadFrame): void {
@@ -168,7 +172,12 @@ export class RequestFnfResponderStream
           frame.data,
           frame.metadata
         );
-        this.cancellable = this.handler(payload, this);
+
+        try {
+          this.cancellable = this.handler(payload, this);
+        } catch (e) {
+          // do nothing
+        }
         return;
       }
     } else {

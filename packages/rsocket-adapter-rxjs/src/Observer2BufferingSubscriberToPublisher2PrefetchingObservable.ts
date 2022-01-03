@@ -35,7 +35,6 @@ import ObserverToBufferingRSocketSubscriber from "./ObserverToBufferingRSocketSu
 import RSocketPublisherToPrefetchingObservable from "./RSocketPublisherToPrefetchingObservable";
 import { applyMixins } from "./Utils";
 
-
 interface Observer2BufferingSubscriberToPublisher2PrefetchingObservable<In, Out>
   extends ObserverToBufferingRSocketSubscriber<In>,
     RSocketPublisherToPrefetchingObservable<
@@ -98,7 +97,7 @@ class Observer2BufferingSubscriberToPublisher2PrefetchingObservable<In, Out>
     super._subscribe(s);
 
     this.restObservable.subscribe(this);
-    
+
     return this;
   }
 

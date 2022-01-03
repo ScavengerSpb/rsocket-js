@@ -119,11 +119,10 @@ export class RequestStreamRequesterStream
     this.receiver.onError(error);
   }
 
-  handle(
-    frame: PayloadFrame | ErrorFrame | CancelFrame | RequestNFrame | ExtFrame
-  ): void {
+  handle(frame: PayloadFrame | ErrorFrame | ExtFrame): void {
     let errorMessage: string;
-    switch (frame.type) {
+    const frameType = frame.type;
+    switch (frameType) {
       case FrameTypes.PAYLOAD: {
         const hasComplete = Flags.hasComplete(frame.flags);
         const hasNext = Flags.hasNext(frame.flags);
@@ -171,6 +170,10 @@ export class RequestStreamRequesterStream
       }
 
       case FrameTypes.EXT: {
+        if (this.hasFragments) {
+          errorMessage = `Unexpected frame type [${frameType}] during reassembly`;
+          break;
+        }
         this.receiver.onExtension(
           frame.extendedType,
           frame.extendedContent,
@@ -180,7 +183,7 @@ export class RequestStreamRequesterStream
       }
 
       default: {
-        errorMessage = `Unexpected frame type [${frame.type}]`;
+        errorMessage = `Unexpected frame type [${frameType}]`;
       }
     }
 
@@ -223,13 +226,13 @@ export class RequestStreamRequesterStream
       this.leaseManager?.cancelRequest(this);
       return;
     }
-
-    this.stream.disconnect(this);
     this.stream.send({
       type: FrameTypes.CANCEL,
       flags: Flags.NONE,
       streamId: this.streamId,
     });
+
+    this.stream.disconnect(this);
 
     Reassembler.cancel(this);
   }
@@ -320,31 +323,42 @@ export class RequestStreamResponderStream
       data: frame.data,
       metadata: frame.metadata,
     };
-    this.receiver = handler(payload, frame.requestN, this);
+
+    try {
+      this.receiver = handler(payload, frame.requestN, this);
+    } catch (error) {
+      this.onError(error);
+    }
   }
 
   handle(
     frame: CancelFrame | ErrorFrame | PayloadFrame | RequestNFrame | ExtFrame
   ): void {
     let errorMessage: string;
-    if (!this.receiver) {
+    if (!this.receiver || this.hasFragments) {
       if (frame.type === FrameTypes.PAYLOAD) {
         if (Flags.hasFollows(frame.flags)) {
           if (Reassembler.add(this, frame.data, frame.metadata)) {
             return;
           }
           errorMessage = `Unexpected frame size`;
-        }
+        } else {
+          const payload = Reassembler.reassemble(
+            this,
+            frame.data,
+            frame.metadata
+          );
 
-        const payload = Reassembler.reassemble(
-          this,
-          frame.data,
-          frame.metadata
-        );
-        this.receiver = this.handler(payload, this.initialRequestN, this);
-        return;
+          try {
+            this.receiver = this.handler(payload, this.initialRequestN, this);
+          } catch (error) {
+            this.onError(error);
+          }
+
+          return;
+        }
       } else {
-        errorMessage = `Unexpected frame type [${frame.type}]`;
+        errorMessage = `Unexpected frame type [${frame.type}] during reassembly`;
       }
     } else if (frame.type === FrameTypes.REQUEST_N) {
       this.receiver.request(frame.requestN);
@@ -362,8 +376,6 @@ export class RequestStreamResponderStream
 
     this.done = true;
 
-    this.stream.disconnect(this);
-
     Reassembler.cancel(this);
 
     this.receiver?.cancel();
@@ -377,6 +389,8 @@ export class RequestStreamResponderStream
         streamId: this.streamId,
       });
     }
+
+    this.stream.disconnect(this);
     // TODO: throws if strict
   }
 
@@ -392,8 +406,6 @@ export class RequestStreamResponderStream
 
     this.done = true;
 
-    this.stream.disconnect(this);
-
     this.stream.send({
       type: FrameTypes.ERROR,
       flags: Flags.NONE,
@@ -404,6 +416,8 @@ export class RequestStreamResponderStream
       message: error.message,
       streamId: this.streamId,
     });
+
+    this.stream.disconnect(this);
   }
 
   onNext(payload: Payload, isCompletion: boolean): void {
@@ -413,8 +427,6 @@ export class RequestStreamResponderStream
 
     if (isCompletion) {
       this.done = true;
-
-      this.stream.disconnect(this);
     }
 
     // TODO: add payload size validation
@@ -441,6 +453,10 @@ export class RequestStreamResponderStream
         streamId: this.streamId,
       });
     }
+
+    if (isCompletion) {
+      this.stream.disconnect(this);
+    }
   }
 
   onComplete(): void {
@@ -450,8 +466,6 @@ export class RequestStreamResponderStream
 
     this.done = true;
 
-    this.stream.disconnect(this);
-
     this.stream.send({
       type: FrameTypes.PAYLOAD,
       flags: Flags.COMPLETE,
@@ -459,6 +473,8 @@ export class RequestStreamResponderStream
       data: null,
       metadata: null,
     });
+
+    this.stream.disconnect(this);
   }
 
   onExtension(

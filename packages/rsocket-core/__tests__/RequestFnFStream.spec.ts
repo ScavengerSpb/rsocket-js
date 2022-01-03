@@ -225,6 +225,66 @@ describe("RequestFnFStream Test", () => {
 
         expect(mockCancellable.cancel).toBeCalled();
       });
+
+      it("Drop exception from handler", () => {
+        const mockStream = new MockStream();
+        let payload: Payload;
+        let sink: OnTerminalSubscriber;
+        const responder = new RequestFnfResponderStream(
+          1,
+          mockStream,
+          (p, sender) => {
+            payload = p;
+            sink = sender;
+            throw new Error("boom");
+          },
+          {
+            type: FrameTypes.REQUEST_FNF,
+            streamId: 1,
+            flags: Flags.METADATA,
+            data: Buffer.from("Hello World"),
+            metadata: Buffer.from("World Hello"),
+          }
+        );
+        sink.onComplete();
+        expect(mockStream.frames).toHaveLength(0);
+        expect(payload).toMatchObject({
+          data: Buffer.from("Hello World"),
+          metadata: Buffer.from("World Hello"),
+        });
+
+        expect(mockStream.handler).toBeUndefined();
+      });
+
+      it("Drop exception from handler if terminated earlier", () => {
+        const mockStream = new MockStream();
+        let payload: Payload;
+        let sink: OnTerminalSubscriber;
+        const responder = new RequestFnfResponderStream(
+          1,
+          mockStream,
+          (p, sender) => {
+            payload = p;
+            sink = sender;
+            sender.onComplete();
+            throw new Error("boom");
+          },
+          {
+            type: FrameTypes.REQUEST_FNF,
+            streamId: 1,
+            flags: Flags.METADATA,
+            data: Buffer.from("Hello World"),
+            metadata: Buffer.from("World Hello"),
+          }
+        );
+        expect(mockStream.frames).toHaveLength(0);
+        expect(payload).toMatchObject({
+          data: Buffer.from("Hello World"),
+          metadata: Buffer.from("World Hello"),
+        });
+
+        expect(mockStream.handler).toBeUndefined();
+      });
     });
 
     describe("Fragmentable", () => {
@@ -327,7 +387,7 @@ describe("RequestFnFStream Test", () => {
             type: FrameTypes.ERROR,
             flags: Flags.NONE,
             code: ErrorCodes.CANCELED,
-            message: `Unexpected frame type [${FrameTypes.EXT}]` ,
+            message: `Unexpected frame type [${FrameTypes.EXT}]`,
             streamId: 1,
           },
         ]);
@@ -362,6 +422,134 @@ describe("RequestFnFStream Test", () => {
 
         expect(responder.data).toBeUndefined();
         expect(responder.metadata).toBeUndefined();
+      });
+
+      it("Drop exception from handler", () => {
+        const mockStream = new MockStream();
+        let payload: Payload;
+        let sink: OnTerminalSubscriber;
+        const responder = new RequestFnfResponderStream(
+          1,
+          mockStream,
+          (p, sender) => {
+            payload = p;
+            sink = sender;
+            throw new Error("boom");
+          },
+          {
+            type: FrameTypes.REQUEST_FNF,
+            flags: Flags.FOLLOWS | Flags.METADATA,
+            data: undefined,
+            metadata: Buffer.from("world he"),
+            streamId: 1,
+          }
+        );
+
+        expect(mockStream.handler).toBe(responder);
+        expect(mockStream.frames).toMatchObject([]);
+        expect(payload).toBeUndefined();
+
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
+          data: Buffer.from("hello"),
+          metadata: Buffer.from("llo"),
+          streamId: 1,
+        });
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          flags: Flags.NEXT | Flags.FOLLOWS,
+          data: Buffer.from(" worldhello"),
+          metadata: undefined,
+          streamId: 1,
+        });
+
+        expect(mockStream.frames).toMatchObject([]);
+        expect(payload).toBeUndefined();
+
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          flags: Flags.NEXT,
+          data: Buffer.from(" world"),
+          metadata: undefined,
+          streamId: 1,
+        });
+
+        sink.onComplete();
+        expect(mockStream.frames).toHaveLength(0);
+        expect(payload).toMatchObject({
+          data: Buffer.concat([
+            Buffer.from("hello world"),
+            Buffer.from("hello world"),
+          ]), // 22 bytes
+          metadata: Buffer.from("world hello"),
+        });
+
+        expect(mockStream.handler).toBeUndefined();
+      });
+
+      it("Drop exception from handler if terminated earlier", () => {
+        const mockStream = new MockStream();
+        let payload: Payload;
+        let sink: OnTerminalSubscriber;
+        const responder = new RequestFnfResponderStream(
+          1,
+          mockStream,
+          (p, sender) => {
+            payload = p;
+            sink = sender;
+            sender.onComplete();
+            throw new Error("boom");
+          },
+          {
+            type: FrameTypes.REQUEST_FNF,
+            flags: Flags.FOLLOWS | Flags.METADATA,
+            data: undefined,
+            metadata: Buffer.from("world he"),
+            streamId: 1,
+          }
+        );
+
+        expect(mockStream.handler).toBe(responder);
+        expect(mockStream.frames).toMatchObject([]);
+        expect(payload).toBeUndefined();
+
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
+          data: Buffer.from("hello"),
+          metadata: Buffer.from("llo"),
+          streamId: 1,
+        });
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          flags: Flags.NEXT | Flags.FOLLOWS,
+          data: Buffer.from(" worldhello"),
+          metadata: undefined,
+          streamId: 1,
+        });
+
+        expect(mockStream.frames).toMatchObject([]);
+        expect(payload).toBeUndefined();
+
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          flags: Flags.NEXT,
+          data: Buffer.from(" world"),
+          metadata: undefined,
+          streamId: 1,
+        });
+
+        expect(mockStream.frames).toHaveLength(0);
+        expect(payload).toMatchObject({
+          data: Buffer.concat([
+            Buffer.from("hello world"),
+            Buffer.from("hello world"),
+          ]), // 22 bytes
+          metadata: Buffer.from("world hello"),
+        });
+
+        expect(mockStream.handler).toBeUndefined();
       });
     });
   });

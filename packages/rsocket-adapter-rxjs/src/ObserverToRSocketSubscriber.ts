@@ -28,10 +28,12 @@ export default class ObserverToRSocketSubscriber<T>
   implements Observer<T>, Cancellable, OnExtensionSubscriber
 {
   constructor(
-    private readonly subscriber: T extends (void | null | undefined)
+    private readonly subscriber: T extends void | null | undefined
       ? OnTerminalSubscriber
       : OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber,
-    private readonly codec: T extends (void | null | undefined) ? undefined : Codec<T>
+    private readonly codec: T extends void | null | undefined
+      ? undefined
+      : Codec<T>
   ) {
     super();
   }

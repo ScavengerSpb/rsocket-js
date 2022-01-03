@@ -16,7 +16,7 @@ import {
 } from "../src/RSocket";
 import { MockStream } from "./test-utils/MockStream";
 
-describe("RequestStreamStream Test", () => {
+describe("RequestChannelStream Test", () => {
   describe("Requester", () => {
     describe("Non-Fragmentable", () => {
       [true, false].forEach((state) =>
@@ -51,8 +51,9 @@ describe("RequestStreamStream Test", () => {
               type: FrameTypes.REQUEST_CHANNEL,
               data: Buffer.from("Hello"),
               metadata: Buffer.from(" World"),
-              flags: Flags.METADATA,
+              flags: Flags.METADATA | (state ? Flags.COMPLETE : Flags.NONE),
               streamId: 1,
+              requestN: 1,
             },
           ]);
 
@@ -72,17 +73,17 @@ describe("RequestStreamStream Test", () => {
           expect(mockHandler.onError).toBeCalledWith(
             new RSocketError(
               ErrorCodes.CANCELED,
-              `Unexpected frame type [${FrameTypes.REQUEST_N}]`
+              `Unexpected frame type [${FrameTypes.REQUEST_RESPONSE}]`
             )
           );
-          expect(mockHandler.cancel).toBeCalledTimes(state ? 1 : 0);
+          expect(mockHandler.cancel).toBeCalledTimes(state ? 0 : 1);
           expect(mockHandler.onNext).not.toBeCalled();
           expect(mockHandler.onComplete).not.toBeCalled();
           expect(mockStream.handler).toBeUndefined();
         })
       );
 
-      it("Sends RequestChannelFrame(complet=true) on onReady event and handle complete", () => {
+      it("Sends RequestChannelFrame(complete=true) on onReady event and handle complete", () => {
         const mockStream = new MockStream();
         const mockHandler: OnTerminalSubscriber &
           OnNextSubscriber &
@@ -114,7 +115,7 @@ describe("RequestStreamStream Test", () => {
             type: FrameTypes.REQUEST_CHANNEL,
             data: Buffer.from("Hello"),
             metadata: Buffer.from(" World"),
-            flags: Flags.METADATA,
+            flags: Flags.METADATA | Flags.COMPLETE,
             requestN: 1,
             streamId: 1,
           },
@@ -137,7 +138,7 @@ describe("RequestStreamStream Test", () => {
         expect(mockStream.handler).toBeUndefined();
       });
 
-      it("Sends RequestChannelFrame(complet=false) on onReady event and handle complete", () => {
+      it("Sends RequestChannelFrame(complete=false) on onReady event and handle complete", () => {
         const mockStream = new MockStream();
         const mockHandler: OnTerminalSubscriber &
           OnNextSubscriber &
@@ -193,8 +194,8 @@ describe("RequestStreamStream Test", () => {
         request.onComplete();
         expect(mockStream.frames.pop()).toMatchObject({
           type: FrameTypes.PAYLOAD,
-          data: undefined,
-          metadata: undefined,
+          data: null,
+          metadata: null,
           flags: Flags.COMPLETE,
           streamId: 1,
         });
@@ -276,8 +277,8 @@ describe("RequestStreamStream Test", () => {
             type: FrameTypes.PAYLOAD,
             flags: Flags.COMPLETE,
             streamId: 1,
-            data: undefined,
-            metadata: undefined,
+            data: null,
+            metadata: null,
           },
         ]);
 
@@ -460,10 +461,28 @@ describe("RequestStreamStream Test", () => {
           requestN: 1,
         });
 
+        expect(mockStream.handler).toBe(request);
         expect(mockHandler.request).toBeCalledWith(1);
+
+        request.handle({
+          type: FrameTypes.CANCEL,
+          flags: Flags.NONE,
+          streamId: 1,
+        });
+
+        expect(mockStream.handler).toBe(request);
+        expect(mockHandler.cancel).toBeCalled();
+
+        request.handle({
+          type: FrameTypes.PAYLOAD,
+          flags: Flags.COMPLETE,
+          streamId: 1,
+          data: null,
+          metadata: null,
+        });
         expect(mockHandler.onError).not.toBeCalledWith();
         expect(mockHandler.onNext).not.toBeCalled();
-        expect(mockHandler.onComplete).not.toBeCalled();
+        expect(mockHandler.onComplete).toBeCalled();
         expect(mockStream.handler).toBeUndefined();
       });
 
@@ -561,6 +580,7 @@ describe("RequestStreamStream Test", () => {
             data: undefined,
             metadata: Buffer.from("world"),
             streamId: 1,
+            requestN: 1,
           },
           {
             type: FrameTypes.PAYLOAD,
@@ -627,6 +647,8 @@ describe("RequestStreamStream Test", () => {
           streamId: 1,
         });
 
+        request.onComplete();
+
         expect(mockStream.handler).toBeUndefined();
         expect(mockHandler.onComplete).toBeCalled();
         expect(mockHandler.onNext).toBeCalled();
@@ -663,6 +685,7 @@ describe("RequestStreamStream Test", () => {
             ]), // 22 bytes
             metadata: Buffer.from("world hello"),
           },
+          false,
           mockHandler,
           11,
           1
@@ -677,6 +700,7 @@ describe("RequestStreamStream Test", () => {
             data: undefined,
             metadata: Buffer.from("world"),
             streamId: 1,
+            requestN: 1,
           },
           {
             type: FrameTypes.PAYLOAD,
@@ -740,7 +764,7 @@ describe("RequestStreamStream Test", () => {
         expect(mockHandler.onError).toHaveBeenCalledWith(
           new RSocketError(
             ErrorCodes.APPLICATION_ERROR,
-            `Unexpected frame type [${FrameTypes.REQUEST_N}]`
+            `Unexpected frame type [${FrameTypes.REQUEST_N}] during reassembly`
           )
         );
       });
@@ -750,14 +774,21 @@ describe("RequestStreamStream Test", () => {
       const mockStream = new MockStream();
       const mockHandler: OnTerminalSubscriber &
         OnNextSubscriber &
-        OnExtensionSubscriber = mock<
-        OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber
+        OnExtensionSubscriber &
+        Requestable &
+        Cancellable = mock<
+        OnTerminalSubscriber &
+          OnNextSubscriber &
+          OnExtensionSubscriber &
+          Requestable &
+          Cancellable
       >();
       const request = new RequestChannelRequesterStream(
         {
           data: Buffer.from("Hello"),
           metadata: Buffer.from(" World"),
         },
+        false,
         mockHandler,
         0,
         1
@@ -777,8 +808,14 @@ describe("RequestStreamStream Test", () => {
       const mockStream = new MockStream();
       const mockHandler: OnTerminalSubscriber &
         OnNextSubscriber &
-        OnExtensionSubscriber = mock<
-        OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber
+        OnExtensionSubscriber &
+        Requestable &
+        Cancellable = mock<
+        OnTerminalSubscriber &
+          OnNextSubscriber &
+          OnExtensionSubscriber &
+          Requestable &
+          Cancellable
       >();
       const mockLeasManager: LeaseManager = mock<LeaseManager>();
       const request = new RequestChannelRequesterStream(
@@ -786,6 +823,7 @@ describe("RequestStreamStream Test", () => {
           data: Buffer.from("Hello"),
           metadata: Buffer.from(" World"),
         },
+        false,
         mockHandler,
         0,
         1,
@@ -805,14 +843,21 @@ describe("RequestStreamStream Test", () => {
     it("Doesn't sends onError and any other frames on onReject event", () => {
       const mockHandler: OnTerminalSubscriber &
         OnNextSubscriber &
-        OnExtensionSubscriber = mock<
-        OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber
+        OnExtensionSubscriber &
+        Requestable &
+        Cancellable = mock<
+        OnTerminalSubscriber &
+          OnNextSubscriber &
+          OnExtensionSubscriber &
+          Requestable &
+          Cancellable
       >();
       const request = new RequestChannelRequesterStream(
         {
           data: Buffer.from("Hello"),
           metadata: Buffer.from(" World"),
         },
+        false,
         mockHandler,
         0,
         1
@@ -826,14 +871,21 @@ describe("RequestStreamStream Test", () => {
     it("Doesn't sends onError on onReject event if cancelled", () => {
       const mockHandler: OnTerminalSubscriber &
         OnNextSubscriber &
-        OnExtensionSubscriber = mock<
-        OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber
+        OnExtensionSubscriber &
+        Requestable &
+        Cancellable = mock<
+        OnTerminalSubscriber &
+          OnNextSubscriber &
+          OnExtensionSubscriber &
+          Requestable &
+          Cancellable
       >();
       const request = new RequestChannelRequesterStream(
         {
           data: Buffer.from("Hello"),
           metadata: Buffer.from(" World"),
         },
+        false,
         mockHandler,
         0,
         1
@@ -853,19 +905,27 @@ describe("RequestStreamStream Test", () => {
       it("Handler Request and Send Complete", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
-        let sink: OnNextSubscriber &
+        let sink: Cancellable &
+          Requestable &
+          OnExtensionSubscriber &
           OnTerminalSubscriber &
-          OnExtensionSubscriber;
+          OnNextSubscriber;
+        let isCompleted: boolean;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, sender) => {
+          (p, requestN, c, sender) => {
             payload = p;
+            isCompleted = c;
             sink = sender;
             requested = requestN;
             return mockHandler;
@@ -907,26 +967,59 @@ describe("RequestStreamStream Test", () => {
           metadata: Buffer.from("World Hello"),
         });
 
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          streamId: 1,
+          flags: Flags.NEXT,
+          data: Buffer.from("test"),
+          metadata: null,
+        });
+
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          streamId: 1,
+          flags: Flags.COMPLETE,
+          data: null,
+          metadata: null,
+        });
+
         expect(mockStream.handler).toBeUndefined();
         expect(requested).toBe(10);
+        expect(mockHandler.onComplete).toBeCalled();
+        expect((mockHandler.onNext as jest.Mock).mock.calls[0]).toMatchObject([
+          {
+            data: Buffer.from("test"),
+            metadata: null,
+          },
+          false,
+        ]);
+        expect(mockHandler.cancel).not.toBeCalled();
       });
 
       it("Handler Request and Send Next", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
-        let sink: OnNextSubscriber &
+        let isCompleted: boolean;
+        let sink: Cancellable &
+          Requestable &
+          OnExtensionSubscriber &
           OnTerminalSubscriber &
-          OnExtensionSubscriber;
+          OnNextSubscriber;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, sender) => {
+          (p, requestN, c, sender) => {
             payload = p;
+            isCompleted = c;
             sink = sender;
             requested = requestN;
             return mockHandler;
@@ -979,27 +1072,52 @@ describe("RequestStreamStream Test", () => {
           metadata: Buffer.from("World Hello"),
         });
 
+        responder.handle({
+          type: FrameTypes.PAYLOAD,
+          streamId: 1,
+          flags: Flags.NEXT | Flags.METADATA | Flags.COMPLETE,
+          data: Buffer.from("response2"),
+          metadata: Buffer.from("response-meta2"),
+        });
+
         expect(mockStream.handler).toBeUndefined();
+        expect(mockHandler.onNext.mock.calls[0]).toMatchObject([
+          {
+            data: Buffer.from("response2"),
+            metadata: Buffer.from("response-meta2"),
+          },
+          true,
+        ]);
+        expect(mockHandler.onComplete).not.toBeCalled();
+        expect(mockHandler.cancel).not.toBeCalled();
         expect(requested).toBe(2);
       });
 
       it("Handler Request and Send Error", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
-        let sink: OnNextSubscriber &
+        let isCompleted: boolean;
+        let sink: Cancellable &
+          Requestable &
+          OnExtensionSubscriber &
           OnTerminalSubscriber &
-          OnExtensionSubscriber;
+          OnNextSubscriber;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, sender) => {
+          (p, requestN, c, sender) => {
             payload = p;
             sink = sender;
+            isCompleted = c;
             requested = requestN;
             return mockHandler;
           },
@@ -1039,20 +1157,28 @@ describe("RequestStreamStream Test", () => {
       it("Cancel on close", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
-        let sink: OnExtensionSubscriber &
-          OnNextSubscriber &
-          OnTerminalSubscriber;
+        let isCompleted: boolean;
+        let sink: Cancellable &
+          Requestable &
+          OnExtensionSubscriber &
+          OnTerminalSubscriber &
+          OnNextSubscriber;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, s) => {
+          (p, requestN, c, s) => {
             sink = s;
             payload = p;
+            isCompleted = c;
             requested = requestN;
             return mockHandler;
           },
@@ -1073,6 +1199,7 @@ describe("RequestStreamStream Test", () => {
           metadata: Buffer.from("world hello"),
         });
 
+        mockStream.disconnect(responder);
         responder.close();
         sink.onNext(
           {
@@ -1082,6 +1209,8 @@ describe("RequestStreamStream Test", () => {
         );
         sink.onComplete();
 
+        expect(mockStream.frames).toMatchObject([]);
+
         expect(requested).toBe(1);
         expect(mockStream.handler).toBeUndefined();
         expect(mockHandler.cancel).toBeCalled();
@@ -1089,20 +1218,124 @@ describe("RequestStreamStream Test", () => {
     });
 
     describe("Fragmentable", () => {
-      it("Handler Request and Send Complete", () => {
+      for (const shouldBeCompleted of [true, false]) {
+        it(`Handle ${
+          shouldBeCompleted ? "completed" : "uncompleted"
+        } Request and respond with onComplete`, () => {
+          const mockStream = new MockStream();
+          const mockHandler = mock<
+            Cancellable &
+              Requestable &
+              OnExtensionSubscriber &
+              OnTerminalSubscriber &
+              OnNextSubscriber
+          >();
+          let payload: Payload;
+          let isCompleted: boolean;
+          let requested: number;
+          const responder = new RequestChannelResponderStream(
+            1,
+            mockStream,
+            0,
+            (p, requestN, c, terminator) => {
+              payload = p;
+              isCompleted = c;
+              requested = requestN;
+              terminator.onComplete();
+              return mockHandler;
+            },
+            {
+              type: FrameTypes.REQUEST_CHANNEL,
+              flags: Flags.FOLLOWS | Flags.METADATA,
+              data: undefined,
+              metadata: Buffer.from("world"),
+              streamId: 1,
+              requestN: 1,
+            }
+          );
+
+          expect(mockStream.handler).toBe(responder);
+          expect(mockStream.frames).toMatchObject([]);
+          expect(payload).toBeUndefined();
+
+          responder.handle({
+            type: FrameTypes.PAYLOAD,
+            flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
+            data: Buffer.from("he"),
+            metadata: Buffer.from(" hello"),
+            streamId: 1,
+          });
+          responder.handle({
+            type: FrameTypes.PAYLOAD,
+            flags: Flags.NEXT | Flags.FOLLOWS,
+            data: Buffer.from("llo worldhe"),
+            metadata: undefined,
+            streamId: 1,
+          });
+
+          expect(mockStream.frames).toMatchObject([]);
+          expect(payload).toBeUndefined();
+
+          responder.handle({
+            type: FrameTypes.PAYLOAD,
+            flags:
+              Flags.NEXT | (shouldBeCompleted ? Flags.COMPLETE : Flags.NONE),
+            data: Buffer.from("llo world"),
+            metadata: undefined,
+            streamId: 1,
+          });
+
+          if (!shouldBeCompleted) {
+            responder.handle({
+              type: FrameTypes.PAYLOAD,
+              streamId: 1,
+              flags: Flags.COMPLETE,
+              data: null,
+              metadata: null,
+            });
+          }
+
+          expect(mockStream.handler).toBeUndefined();
+          expect(mockStream.frames).toMatchObject([
+            {
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.COMPLETE,
+              data: null,
+              metadata: null,
+              streamId: 1,
+            },
+          ]);
+          expect(payload).toMatchObject({
+            data: Buffer.concat([
+              Buffer.from("hello world"),
+              Buffer.from("hello world"),
+            ]), // 22 bytes
+            metadata: Buffer.from("world hello"),
+          });
+        });
+      }
+
+      it("Handler Request and Send Complete and then cancel", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
+        let isCompleted: boolean;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, terminator) => {
+          (p, requestN, c, terminator) => {
             payload = p;
+            isCompleted = c;
             requested = requestN;
+            terminator.cancel();
             terminator.onComplete();
             return mockHandler;
           },
@@ -1149,6 +1382,11 @@ describe("RequestStreamStream Test", () => {
         expect(mockStream.handler).toBeUndefined();
         expect(mockStream.frames).toMatchObject([
           {
+            type: FrameTypes.CANCEL,
+            flags: Flags.NONE,
+            streamId: 1,
+          },
+          {
             type: FrameTypes.PAYLOAD,
             flags: Flags.COMPLETE,
             data: null,
@@ -1165,154 +1403,253 @@ describe("RequestStreamStream Test", () => {
         });
       });
 
-      it("Handler Request and Send Responses", () => {
-        const mockStream = new MockStream();
-        const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
-        >();
-        let payload: Payload;
-        let requested: number;
-        const responder = new RequestChannelResponderStream(
-          1,
-          mockStream,
-          11,
-          (p, requestN, terminator) => {
-            payload = p;
-            requested = requestN;
-            terminator.onNext(
-              {
-                data: Buffer.concat([
-                  Buffer.from("hello world"),
-                  Buffer.from("hello world"),
-                ]), // 22 bytes
-                metadata: Buffer.from("world hello"),
-              },
-              false
-            );
+      for (const completeOnNext of [true, false]) {
+        it("Handler RequestChannel and inbound onNext and Send Responses", () => {
+          const mockStream = new MockStream();
+          const mockHandler = mock<
+            Cancellable &
+              Requestable &
+              OnExtensionSubscriber &
+              OnTerminalSubscriber &
+              OnNextSubscriber
+          >();
+          let payload: Payload;
+          let isCompleted: boolean;
+          let requested: number;
+          const responder = new RequestChannelResponderStream(
+            1,
+            mockStream,
+            11,
+            (p, requestN, c, terminator) => {
+              payload = p;
+              isCompleted = c;
+              requested = requestN;
+              terminator.onNext(
+                {
+                  data: Buffer.concat([
+                    Buffer.from("hello world"),
+                    Buffer.from("hello world"),
+                  ]), // 22 bytes
+                  metadata: Buffer.from("world hello"),
+                },
+                false
+              );
 
-            terminator.onNext(
-              {
-                data: Buffer.from("hello"),
-              },
-              false
-            );
+              terminator.onNext(
+                {
+                  data: Buffer.from("hello"),
+                },
+                false
+              );
 
-            terminator.onNext(
-              {
-                data: Buffer.from("world"),
-              },
-              true
-            );
-            return mockHandler;
-          },
-          {
-            type: FrameTypes.REQUEST_CHANNEL,
-            flags: Flags.FOLLOWS | Flags.METADATA,
-            data: undefined,
-            metadata: Buffer.from("world he"),
-            streamId: 1,
-            requestN: 1,
-          }
-        );
+              terminator.onNext(
+                {
+                  data: Buffer.from("world"),
+                },
+                true
+              );
+              return mockHandler;
+            },
+            {
+              type: FrameTypes.REQUEST_CHANNEL,
+              flags: Flags.FOLLOWS | Flags.METADATA,
+              data: undefined,
+              metadata: Buffer.from("world he"),
+              streamId: 1,
+              requestN: 1,
+            }
+          );
 
-        expect(mockStream.handler).toBe(responder);
-        expect(mockStream.frames).toMatchObject([]);
-        expect(payload).toBeUndefined();
+          expect(mockStream.handler).toBe(responder);
+          expect(mockStream.frames).toMatchObject([]);
+          expect(payload).toBeUndefined();
 
-        responder.handle({
-          type: FrameTypes.PAYLOAD,
-          flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
-          data: Buffer.from("hello"),
-          metadata: Buffer.from("llo"),
-          streamId: 1,
-        });
-        responder.handle({
-          type: FrameTypes.PAYLOAD,
-          flags: Flags.NEXT | Flags.FOLLOWS,
-          data: Buffer.from(" worldhello"),
-          metadata: undefined,
-          streamId: 1,
-        });
-
-        expect(mockStream.frames).toMatchObject([]);
-        expect(payload).toBeUndefined();
-
-        responder.handle({
-          type: FrameTypes.PAYLOAD,
-          flags: Flags.NEXT,
-          data: Buffer.from(" world"),
-          metadata: undefined,
-          streamId: 1,
-        });
-
-        expect(mockStream.frames).toMatchObject([
-          {
-            type: FrameTypes.PAYLOAD,
-            flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
-            data: undefined,
-            metadata: Buffer.from("world he"),
-            streamId: 1,
-          },
-          {
+          responder.handle({
             type: FrameTypes.PAYLOAD,
             flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
             data: Buffer.from("hello"),
             metadata: Buffer.from("llo"),
             streamId: 1,
-          },
-          {
+          });
+          responder.handle({
             type: FrameTypes.PAYLOAD,
             flags: Flags.NEXT | Flags.FOLLOWS,
             data: Buffer.from(" worldhello"),
             metadata: undefined,
             streamId: 1,
-          },
-          {
+          });
+
+          expect(mockStream.frames).toMatchObject([]);
+          expect(payload).toBeUndefined();
+
+          responder.handle({
             type: FrameTypes.PAYLOAD,
             flags: Flags.NEXT,
             data: Buffer.from(" world"),
             metadata: undefined,
             streamId: 1,
-          },
-          {
+          });
+
+          expect(mockStream.frames).toMatchObject([
+            {
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
+              data: undefined,
+              metadata: Buffer.from("world he"),
+              streamId: 1,
+            },
+            {
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
+              data: Buffer.from("hello"),
+              metadata: Buffer.from("llo"),
+              streamId: 1,
+            },
+            {
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.NEXT | Flags.FOLLOWS,
+              data: Buffer.from(" worldhello"),
+              metadata: undefined,
+              streamId: 1,
+            },
+            {
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.NEXT,
+              data: Buffer.from(" world"),
+              metadata: undefined,
+              streamId: 1,
+            },
+            {
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.NEXT,
+              data: Buffer.from("hello"),
+              metadata: undefined,
+              streamId: 1,
+            },
+            {
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.NEXT | Flags.COMPLETE,
+              data: Buffer.from("world"),
+              metadata: undefined,
+              streamId: 1,
+            },
+          ]);
+
+          responder.handle({
+            type: FrameTypes.PAYLOAD,
+            flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
+            data: undefined,
+            metadata: Buffer.from("world he"),
+            streamId: 1,
+          });
+          responder.handle({
+            type: FrameTypes.PAYLOAD,
+            flags: Flags.NEXT | Flags.FOLLOWS | Flags.METADATA,
+            data: Buffer.from("hello"),
+            metadata: Buffer.from("llo"),
+            streamId: 1,
+          });
+          responder.handle({
+            type: FrameTypes.PAYLOAD,
+            flags: Flags.NEXT | Flags.FOLLOWS,
+            data: Buffer.from(" worldhello"),
+            metadata: null,
+            streamId: 1,
+          });
+          responder.handle({
+            type: FrameTypes.PAYLOAD,
+            flags: Flags.NEXT,
+            data: Buffer.from(" world"),
+            metadata: null,
+            streamId: 1,
+          });
+
+          responder.handle({
             type: FrameTypes.PAYLOAD,
             flags: Flags.NEXT,
             data: Buffer.from("hello"),
-            metadata: undefined,
+            metadata: null,
             streamId: 1,
-          },
-          {
-            type: FrameTypes.PAYLOAD,
-            flags: Flags.NEXT | Flags.COMPLETE,
-            data: Buffer.from("world"),
-            metadata: undefined,
-            streamId: 1,
-          },
-        ]);
-        expect(payload).toMatchObject({
-          data: Buffer.concat([
-            Buffer.from("hello world"),
-            Buffer.from("hello world"),
-          ]), // 22 bytes
-          metadata: Buffer.from("world hello"),
+          });
+
+          if (completeOnNext) {
+            responder.handle({
+              type: FrameTypes.PAYLOAD,
+              flags: Flags.NEXT | Flags.COMPLETE,
+              data: Buffer.from("world"),
+              metadata: null,
+              streamId: 1,
+            });
+          } else {
+            responder.handle({
+              type: FrameTypes.PAYLOAD,
+              streamId: 1,
+              flags: Flags.COMPLETE,
+              data: null,
+              metadata: null,
+            });
+          }
+
+          expect(payload).toMatchObject({
+            data: Buffer.concat([
+              Buffer.from("hello world"),
+              Buffer.from("hello world"),
+            ]), // 22 bytes
+            metadata: Buffer.from("world hello"),
+          });
+
+          expect(mockHandler.onNext.mock.calls[0]).toMatchObject([
+            {
+              data: Buffer.concat([
+                Buffer.from("hello world"),
+                Buffer.from("hello world"),
+              ]), // 22 bytes
+              metadata: Buffer.from("world hello"),
+            },
+            false,
+          ]);
+          expect(mockHandler.onNext.mock.calls[1]).toMatchObject([
+            {
+              data: Buffer.from("hello"),
+              metadata: null,
+            },
+            false,
+          ]);
+          expect(requested).toBe(1);
+          if (completeOnNext) {
+            expect(mockHandler.onNext.mock.calls[2]).toMatchObject([
+              {
+                data: Buffer.from("world"),
+                metadata: null,
+              },
+              true,
+            ]);
+          } else {
+            expect(mockHandler.onComplete).toBeCalled();
+          }
+          expect(mockStream.handler).toBeUndefined();
         });
-        expect(requested).toBe(1);
-        expect(mockStream.handler).toBeUndefined();
-      });
+      }
 
       it("Send error back on unexpected frame", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
+        let isCompleted: boolean;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, terminator) => {
+          (p, requestN, c, terminator) => {
             payload = p;
+            isCompleted = c;
             requested = requestN;
             terminator.onComplete();
             return mockHandler;
@@ -1344,7 +1681,7 @@ describe("RequestStreamStream Test", () => {
             type: FrameTypes.ERROR,
             flags: Flags.NONE,
             code: ErrorCodes.CANCELED,
-            message: `Unexpected frame type [${FrameTypes.EXT}]`,
+            message: `Unexpected frame type [${FrameTypes.EXT}] during reassembly`,
             streamId: 1,
           },
         ]);
@@ -1356,16 +1693,22 @@ describe("RequestStreamStream Test", () => {
       it("Cancel Reassembly on close", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
+        let isCompleted: boolean;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, terminator) => {
+          (p, requestN, c, terminator) => {
             payload = p;
+            isCompleted = c;
             requested = requestN;
             terminator.onComplete();
             return mockHandler;
@@ -1393,16 +1736,22 @@ describe("RequestStreamStream Test", () => {
       it("Cancel Reassembly on Cancel Frame", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
+        let isCompleted: boolean;
         let requested: number;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, terminator) => {
+          (p, requestN, c, terminator) => {
             payload = p;
+            isCompleted = c;
             requested = requestN;
             terminator.onComplete();
             return mockHandler;
@@ -1435,15 +1784,21 @@ describe("RequestStreamStream Test", () => {
       it("Cancel Reassembly on Error Frame", () => {
         const mockStream = new MockStream();
         const mockHandler = mock<
-          Cancellable & Requestable & OnExtensionSubscriber
+          Cancellable &
+            Requestable &
+            OnExtensionSubscriber &
+            OnTerminalSubscriber &
+            OnNextSubscriber
         >();
         let payload: Payload;
+        let isCompleted: boolean;
         const responder = new RequestChannelResponderStream(
           1,
           mockStream,
           0,
-          (p, requestN, terminator) => {
+          (p, requestN, c, terminator) => {
             payload = p;
+            isCompleted = c;
             terminator.onComplete();
             return mockHandler;
           },

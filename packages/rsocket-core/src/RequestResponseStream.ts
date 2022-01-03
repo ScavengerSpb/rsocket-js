@@ -115,11 +115,10 @@ export class RequestResponseRequesterStream
     this.receiver.onError(error);
   }
 
-  handle(
-    frame: PayloadFrame | ErrorFrame | CancelFrame | RequestNFrame | ExtFrame
-  ): void {
+  handle(frame: PayloadFrame | ErrorFrame | ExtFrame): void {
     let errorMessage: string;
-    switch (frame.type) {
+    const frameType = frame.type;
+    switch (frameType) {
       case FrameTypes.PAYLOAD: {
         const hasComplete = Flags.hasComplete(frame.flags);
         const hasPayload = Flags.hasNext(frame.flags);
@@ -165,6 +164,10 @@ export class RequestResponseRequesterStream
       }
 
       case FrameTypes.EXT: {
+        if (this.hasFragments) {
+          errorMessage = `Unexpected frame type [${frameType}] during reassembly`;
+          break;
+        }
         this.receiver.onExtension(
           frame.extendedType,
           frame.extendedContent,
@@ -174,7 +177,7 @@ export class RequestResponseRequesterStream
       }
 
       default: {
-        errorMessage = `Unexpected frame type [${frame.type}]`;
+        errorMessage = `Unexpected frame type [${frameType}]`;
       }
     }
 
@@ -296,8 +299,8 @@ export class RequestResponseResponderStream
 
     try {
       this.receiver = handler(payload, this);
-    } catch {
-      stream.disconnect(this);
+    } catch (error) {
+      this.onError(error);
     }
   }
 
@@ -305,7 +308,7 @@ export class RequestResponseResponderStream
     frame: CancelFrame | ErrorFrame | PayloadFrame | RequestNFrame | ExtFrame
   ): void {
     let errorMessage: string;
-    if (!this.receiver) {
+    if (!this.receiver || this.hasFragments) {
       if (frame.type === FrameTypes.PAYLOAD) {
         if (Flags.hasFollows(frame.flags)) {
           if (Reassembler.add(this, frame.data, frame.metadata)) {
@@ -318,11 +321,15 @@ export class RequestResponseResponderStream
             frame.data,
             frame.metadata
           );
-          this.receiver = this.handler(payload, this);
+          try {
+            this.receiver = this.handler(payload, this);
+          } catch (error) {
+            this.onError(error);
+          }
           return;
         }
       } else {
-        errorMessage = `Unexpected frame type [${frame.type}]`;
+        errorMessage = `Unexpected frame type [${frame.type}] during reassembly`;
       }
     } else if (frame.type === FrameTypes.EXT) {
       this.receiver.onExtension(
